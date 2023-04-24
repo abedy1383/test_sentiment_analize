@@ -2,11 +2,15 @@ import torch , sys
 from pydantic import BaseModel 
 from typing import Any
 import random 
-from torch.nn import Module , Embedding , Linear , RNN , BCEWithLogitsLoss
+from torch.nn import Module , Embedding , Linear , RNN , BCEWithLogitsLoss , LSTM , Dropout
 from torchtext import datasets 
 from torch.optim import Adam
 from torchtext.data import LabelField , Field , BucketIterator
 import os 
+
+torch.manual_seed(1383)
+torch.cuda.manual_seed(1383)
+torch.backends.cudnn.deterministic = True
 
 class BaseData(BaseModel):
     train : Any = None 
@@ -48,7 +52,7 @@ class Datasets():
         
 
     def _one_hot(self):
-        self._text.build_vocab(self.train, max_size=len(self.train)+len(self.valid))
+        self._text.build_vocab(self.train, max_size=self._sum_data)
         self._label.build_vocab(self.train)
         
     def _itreitor(self):
@@ -81,16 +85,37 @@ class Model(Module):
             embadding_dim , 
             hidden_dim , 
             output_dim ,
+            dropout = 0.5,
+            bidirectional = True
         ) -> None:
         super().__init__()
-        
-        self.emb = Embedding(vocab_size , embadding_dim)
-        self.rnn = RNN(embadding_dim , hidden_dim)
-        self.fc = FakeLinear(hidden_dim , output_dim)
+    
+        self.emb = Embedding(vocab_size, embadding_dim)
+        self.rnn = LSTM(embadding_dim, hidden_dim, num_layers=2, 
+                           bidirectional=bidirectional, dropout=dropout)
+        self.fc = FakeLinear(hidden_dim*2, output_dim)
+        self.drp= Dropout(dropout)
     
     def forward(self , text):
-        return self.fc(self.rnn(self.emb(text))[1].squeeze(0))
-     
+        return self.fc(
+            self.drp(
+                torch.cat(
+                    (
+                        (hidden:=self.rnn(
+                            self.drp(
+                                self.emb(
+                                        text
+                                    )
+                                )
+                            )[1][0]
+                        )[-2,:,:] , 
+                        hidden[-1,:,:]
+                    ) , 
+                    dim=1
+                )
+            )
+        )
+         
 class RUNMODEL():
     def __init__(self , 
                 model : Model, 

@@ -1,7 +1,6 @@
-#test 1
 from os import listdir
 from sys import stdout
-from typing import Any
+from typing import Any , Union
 from random import seed
 from torch.optim import Adam
 from torchtext import datasets 
@@ -38,6 +37,12 @@ class BaseData(BaseModel):
     test : Any = None 
     iter_next : Any = None 
 
+class BaseTest(BaseModel):
+        weight : Any
+        prementValid : Any 
+        lossTest : Any
+        prementTest : Any
+
 class BaesOptimModel(BaseModel):
         optimizer : Any 
         loss_func : Any 
@@ -47,7 +52,7 @@ class BaesOptimModel(BaseModel):
 class Datasets():
     def __init__(self , 
             random_id : int = 999 , 
-            batch_size : int = 64 , 
+            batch_size : Union[int,tuple] = 64 , 
             _device : device = DataClass().device
         ) -> None:
         (   self._random_id , 
@@ -87,7 +92,7 @@ class Datasets():
                         # test
                         (_data := datasets.IMDB.splits(self._text , self._label))[1] , 
                         # train
-                        (_train := _data[0].split(random_state=seed(self._random_id)))[0] , 
+                        (_train := _data[0].split(split_ratio= 0.5, random_state=seed(self._random_id)))[0] , 
                         # valid
                         _train[1]
                     )
@@ -178,68 +183,60 @@ class RunModel():
         stdout.flush()
     
     def _acurry(self , pread , y):
-        return ((round(sigmoid(pread)) == y).float()).sum()
+        return ((_prement := (round(sigmoid(pread)) == y).float())).sum()/ len(_prement)
     
     def _check(self):
         if self._namept in listdir("./"):
             self._model.load_state_dict(load(f"./{self._namept}"))
     
-    def train(self , epoch : int = 2 ):
-        self._check()
-        for _epoch in range(epoch):
-            _list = None
-            for _ , batch in enumerate(self._basedata.train):
-                try:
-                    # train model
-                    self._model.train()
-                    self._optimizer.zero_grad()
-                    (loss := self._loss_func((_y_pread:=self._model(batch.text).squeeze(1)) , batch.label)).backward()
-                    self._loss = (loss.item() , (self._loss[1] + 1 if self._loss is not None else 1))
-                    self._optimizer.step()
+    def _TrainCell(self) -> tuple:
+        _loss , _prement , _data = 0 , 0 , None 
+        for _ , batch in enumerate(self._basedata.train):
+            
+            self._model.train()
+            self._optimizer.zero_grad()
 
-                    _list = (
-                        ((_list[0] if _list is not None else 0)+self._acurry(_y_pread,batch.label)) , _ + 1
-                    )
-   
-                    if _ >= 10 or _epoch > 0:
-                        # test model
-                        self._model.eval()
-                        self._data = ((self._model.state_dict() , _acurry_epoch) if (_acurry_epoch := self._acurry(self._model((_test := next(self._basedata.iter_next)).text).squeeze(1) , _test.label)) >= (self._data[1] if (_test_if := self._data is not None) else 0) else (self._data if _test_if else ("" , 0)))
-                    
-                    if _ % 10 == 0:
-                        self._analize(
-                        epoch_j=_epoch , 
-                        epoch_a=epoch , 
-                        train_a=len(self._basedata.train),
-                        train_j=_,
-                        loss=self._loss[0],
-                        best=(self._data[1] if self._data is not None else 0),
-                        test=_list[0]/_list[1]
-                    )
-                except:
-                    pass 
-        self._model.load_state_dict(self._data[0])
-        save(self._model.state_dict() , "./state_model.pt")
+            (loss := self._loss_func((_y_pread:=self._model(batch.text).squeeze(1)) , batch.label)).backward()
 
-    def test(self):
+            self._optimizer.step()
+
+            _prement += self._acurry(_y_pread,batch.label)
+            _loss += loss.item()
+
+            if _ >= 10:
+                self._model.eval()
+                _data = ((self._model.state_dict() , _acurry_epoch) if (_acurry_epoch := self._acurry(self._model((_test := next(self._basedata.iter_next)).text).squeeze(1) , _test.label)) >= (_data[1] if (_test_if := _data is not None) else 0) else (_data if _test_if else ("" , 0)))
+                
+        print(_loss/(_len:= len(self._basedata.test)) , _prement / _len )
+        return _data 
+
+    def _TestCell(self , state_dict) -> tuple:
+        _loss , _pement = 0 ,0 
+
+        self._model.load_state_dict(state_dict)
         self._model.eval()
+
         with no_grad():
             for _ , _batch in enumerate(self._basedata.test):
-                try:
-                    self._analize(
-                        train=False,
-                        epoch_a=1 , 
-                        epoch_j= 0 , 
-                        train_a= len(self._basedata.test) , 
-                        train_j=_ , 
-                        best=self._acurry(
-                            self._model(_batch.text).squeeze(1),
-                            _batch.label
-                        )
-                    )
-                except:
-                    pass 
-                    
+                _loss += self._loss_func((_y_pread:=self._model(_batch.text).squeeze(1)) , _batch.label)
+                _pement += self._acurry(_y_pread,_batch.label)
+        
+        print(_loss , _pement)
+        return _loss/(_len:= len(self._basedata.test)) , _pement / _len 
+
+    def train(self , _epoch):
+        _weight = [
+            BaseTest(
+                weight=_weight , 
+                prementValid=_prementValid , 
+                lossTest=(_testcell := self._TestCell(_weight))[0] , 
+                prementTest=_testcell[1]
+            ) for _weight , _prementValid in [
+                self._TrainCell() for _ in range(_epoch)
+                ]
+            ]
+        return _weight
+            
 class OptemModel():
     def __init__(self,
         _model : Model,
@@ -316,7 +313,7 @@ _ = RunModel(
 )
 _.train(2)            
                 
-_.test()                
+# _.test()                
             
             
         

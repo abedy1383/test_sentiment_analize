@@ -209,10 +209,14 @@ class RunModel():
 
             return _loss/(_len:=len(self._basedata.test)) , _prement/_len
 
+    def _save(self):
+        save(self._model.state_dict(), "./model.pt")
+
     def train(self , _epoch):
         self._model.train()
         for _ in range(_epoch):
             print(f"Train => epoch:[{_+1}/{_epoch}] / loss:[{(_train := self._TrainCell())[0]}] / Acc:[{_train[1]*100:.2f}%]")
+        self._save()
 
     def test(self):
         print(f"Train => loss:[{(_test := self._TestCell())[0]}] / Acc:[{_test[1]*100:.2f}%]")
